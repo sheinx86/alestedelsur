@@ -9,84 +9,130 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Reveal on scroll
+    const reveals = document.querySelectorAll('.reveal');
+    const revealObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('active');
+                observer.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.15 });
+    
+    reveals.forEach(reveal => revealObserver.observe(reveal));
+
     // Carousel logic
     const track = document.querySelector('.carousel-track');
-    const slides = Array.from(track.children);
+    if (!track) return;
+    
+    const originalSlides = Array.from(track.children);
     const nextButton = document.querySelector('.next-btn');
     const prevButton = document.querySelector('.prev-btn');
     
-    // Get width of a slide + gap
-    const slideWidth = slides[0].getBoundingClientRect().width;
-    const gap = parseFloat(window.getComputedStyle(track).gap) || 32; // 2rem = ~32px
-    const moveAmount = slideWidth + gap;
+    // Clonamos los slides para crear el efecto infinito (Set 1 - Set 2 - Set 3)
+    originalSlides.forEach(slide => track.appendChild(slide.cloneNode(true)));
+    originalSlides.forEach(slide => track.appendChild(slide.cloneNode(true)));
 
-    let currentIndex = 0;
-
-    const updateCarousel = () => {
-        track.style.transform = `translateX(-${currentIndex * moveAmount}px)`;
-        
-        // Update button states
-        prevButton.style.opacity = currentIndex === 0 ? '0.5' : '1';
-        prevButton.style.pointerEvents = currentIndex === 0 ? 'none' : 'auto';
-        
-        // Visible slides calculation approx
-        const visibleSlides = Math.floor(track.parentElement.clientWidth / moveAmount);
-        const maxIndex = slides.length - visibleSlides;
-        
-        nextButton.style.opacity = currentIndex >= maxIndex ? '0.5' : '1';
-        nextButton.style.pointerEvents = currentIndex >= maxIndex ? 'none' : 'auto';
+    const allSlides = Array.from(track.children);
+    let currentIndex = originalSlides.length; // Empezamos en el medio
+    
+    const getMoveAmount = () => {
+        const slideWidth = allSlides[0].getBoundingClientRect().width;
+        const gap = parseFloat(window.getComputedStyle(track).gap) || 32;
+        return slideWidth + gap;
     };
 
-    nextButton.addEventListener('click', () => {
-        const visibleSlides = Math.floor(track.parentElement.clientWidth / moveAmount);
-        const maxIndex = slides.length - visibleSlides;
-        if (currentIndex < maxIndex) {
-            currentIndex++;
-            updateCarousel();
+    const updateCarousel = (instant = false) => {
+        if (instant) {
+            track.style.transition = 'none';
+        } else {
+            track.style.transition = 'transform 0.5s ease-in-out';
         }
-    });
+        track.style.transform = `translateX(-${currentIndex * getMoveAmount()}px)`;
+    };
 
-    prevButton.addEventListener('click', () => {
-        if (currentIndex > 0) {
-            currentIndex--;
-            updateCarousel();
+    // Inicializar sin transición
+    updateCarousel(true);
+
+    const checkIndex = () => {
+        track.style.transition = 'none';
+        if (currentIndex < originalSlides.length) {
+            currentIndex += originalSlides.length;
+            updateCarousel(true);
+        } else if (currentIndex >= originalSlides.length * 2) {
+            currentIndex -= originalSlides.length;
+            updateCarousel(true);
         }
-    });
+    };
 
-    // Initialize carousel state
-    updateCarousel();
+    track.addEventListener('transitionend', checkIndex);
 
-    // Resize handling for carousel
-    window.addEventListener('resize', () => {
+    const moveNext = () => {
+        // Wrap prevention si se clica muy rápido
+        if (currentIndex >= originalSlides.length * 2) {
+            currentIndex -= originalSlides.length;
+            updateCarousel(true);
+            track.offsetHeight;
+        }
+        currentIndex++;
         updateCarousel();
-    });
+    };
 
-    // Simple drag for carousel (touch/mouse)
+    const movePrev = () => {
+        if (currentIndex <= 0) {
+            currentIndex += originalSlides.length;
+            updateCarousel(true);
+            track.offsetHeight;
+        }
+        currentIndex--;
+        updateCarousel();
+    };
+
+    if (nextButton) nextButton.addEventListener('click', moveNext);
+    if (prevButton) prevButton.addEventListener('click', movePrev);
+
+    // Autoplay
+    let autoplayInterval = setInterval(moveNext, 2000);
+
+    const pauseAutoplay = () => clearInterval(autoplayInterval);
+    const resumeAutoplay = () => {
+        clearInterval(autoplayInterval);
+        autoplayInterval = setInterval(moveNext, 2000);
+    };
+
+    track.addEventListener('mouseenter', pauseAutoplay);
+    track.addEventListener('mouseleave', resumeAutoplay);
+    track.addEventListener('touchstart', pauseAutoplay, {passive: true});
+    track.addEventListener('touchend', resumeAutoplay);
+
+    // Dragging
     let isDragging = false;
     let startPos = 0;
     let currentTranslate = 0;
     let prevTranslate = 0;
-    let animationID;
 
     track.addEventListener('mousedown', dragStart);
     track.addEventListener('touchstart', dragStart, {passive: true});
-    track.addEventListener('mouseup', dragEnd);
-    track.addEventListener('mouseleave', dragEnd);
-    track.addEventListener('touchend', dragEnd);
-    track.addEventListener('mousemove', drag);
-    track.addEventListener('touchmove', drag, {passive: true});
+    window.addEventListener('mouseup', dragEnd);
+    window.addEventListener('touchend', dragEnd);
+    window.addEventListener('mousemove', drag);
+    window.addEventListener('touchmove', drag, {passive: true});
 
     function dragStart(event) {
+        if (event.target.closest('.carousel-btn')) return;
         isDragging = true;
+        pauseAutoplay();
         startPos = getPositionX(event);
-        animationID = requestAnimationFrame(animation);
-        track.style.transition = 'none'; // remove transition during drag
+        track.style.transition = 'none';
+        prevTranslate = -(currentIndex * getMoveAmount());
     }
 
     function drag(event) {
         if (isDragging) {
             const currentPosition = getPositionX(event);
             currentTranslate = prevTranslate + currentPosition - startPos;
+            track.style.transform = `translateX(${currentTranslate}px)`;
         }
     }
 
@@ -95,35 +141,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function dragEnd() {
+        if (!isDragging) return;
         isDragging = false;
-        cancelAnimationFrame(animationID);
-        track.style.transition = 'transform 0.5s cubic-bezier(0.25, 1, 0.5, 1)';
         
         const movedBy = currentTranslate - prevTranslate;
         
-        // Threshold to change slide
-        if (movedBy < -100) currentIndex++;
-        if (movedBy > 100) currentIndex--;
+        if (movedBy < -50) moveNext();
+        else if (movedBy > 50) movePrev();
+        else updateCarousel();
         
-        // Bounds check
-        const visibleSlides = Math.floor(track.parentElement.clientWidth / moveAmount);
-        const maxIndex = slides.length - visibleSlides;
-        
-        if (currentIndex < 0) currentIndex = 0;
-        if (currentIndex > maxIndex) currentIndex = maxIndex;
-        
-        updateCarousel();
-        prevTranslate = -currentIndex * moveAmount;
+        resumeAutoplay();
     }
-
-    function animation() {
-        if (isDragging) {
-            setSliderPosition();
-            requestAnimationFrame(animation);
-        }
-    }
-
-    function setSliderPosition() {
-        track.style.transform = `translateX(${currentTranslate}px)`;
-    }
+    
+    window.addEventListener('resize', () => {
+        updateCarousel(true);
+    });
 });
