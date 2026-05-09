@@ -52,6 +52,12 @@ body {
     border-bottom: 1px solid rgba(197, 155, 95, 0.1);
 }
 
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
 .logo img {
     height: 100px;
     object-fit: contain;
